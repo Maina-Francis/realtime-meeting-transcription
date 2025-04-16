@@ -16,10 +16,9 @@ export const botConfig = {
 // Proxy configuration
 export const proxyConfig = {
   host: process.env.PROXY_HOST || "0.0.0.0",
-  port: parseInt(process.env.PROXY_PORT || "8765"),
-  botUrl: process.env.BOT_URL || "ws://localhost:8766",
+  port: parseInt(process.env.PROXY_PORT || "5000"),
   audioParams: {
-    sampleRate: 24000,
+    sampleRate: 16000,
     channels: 1,
   },
 };

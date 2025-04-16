@@ -2,6 +2,7 @@ import axios from "axios";
 import WebSocket from "ws";
 import { apiKeys } from "./config";
 import { createLogger } from "./utils";
+import { RedisService } from "./services/redis";
 
 const logger = createLogger("Gladia");
 
@@ -14,9 +15,12 @@ class GladiaClient {
   private onTranscriptionCallback:
     | ((text: string, isFinal: boolean) => void)
     | null = null;
+  private redisService: RedisService;
+  private meetingUrl: string | null = null;
 
-  constructor() {
+  constructor(redisService: RedisService) {
     this.apiKey = apiKeys.gladia || "";
+    this.redisService = redisService;
     if (!this.apiKey) {
       logger.error(
         "Gladia API key not found. Please set GLADIA_API_KEY in .env"
@@ -81,14 +85,26 @@ class GladiaClient {
           const isFinal = message.data.is_final;
 
           if (utterance && utterance.text) {
-            // only log if it's final, remove this
-            // if you want to log partial transcripts
             if (isFinal) {
               logger.info(
-                `Transcription ${isFinal ? "(final)" : "(partial)"}: ${
-                  utterance.text
-                }`
+                `Transcription (final): ${utterance.text}`
               );
+
+              // Store final transcript in Redis
+              if (this.meetingUrl) {
+                // logger.info(`Storing transcript in Redis for meeting: ${this.meetingUrl}`);
+                const success = this.redisService.storeTranscript(
+                  this.meetingUrl,
+                  utterance.text,
+                  utterance.start_time,
+                  utterance.end_time
+                );
+                if (!success) {
+                  logger.error("Failed to store transcript in Redis");
+                }
+              } else {
+                logger.warn("No meeting URL set, transcript not stored in Redis");
+              }
             }
 
             if (this.onTranscriptionCallback) {
@@ -139,6 +155,12 @@ class GladiaClient {
     this.onTranscriptionCallback = callback;
   }
 
+  // Set meeting URL for transcript storage
+  setMeetingUrl(url: string) {
+    this.meetingUrl = url;
+    logger.info(`Meeting URL set to: ${url}`);
+  }
+
   // End transcription session
   endSession() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -148,6 +170,43 @@ class GladiaClient {
     }
     this.ws = null;
     this.sessionId = null;
+    this.meetingUrl = null;
+  }
+
+  private async handleMessage(message: string) {
+    try {
+      const data = JSON.parse(message);
+      
+      if (data.type === "transcript") {
+        const transcript = data.transcript;
+        const isFinal = transcript.type === "final";
+        
+        if (isFinal) {
+          // Store in Redis
+          if (this.meetingUrl) {
+            const success = await this.redisService.storeTranscript(
+              this.meetingUrl,
+              transcript.text,
+              transcript.start_time,
+              transcript.end_time
+            );
+            
+            if (!success) {
+              logger.error("Failed to store transcript in Redis");
+            }
+          } else {
+            logger.error("No meeting URL set, cannot store transcript");
+          }
+        }
+        
+        // Send to callback
+        if (this.onTranscriptionCallback) {
+          this.onTranscriptionCallback(transcript.text, isFinal);
+        }
+      }
+    } catch (error) {
+      logger.error("Error handling Gladia message:", error);
+    }
   }
 }
 

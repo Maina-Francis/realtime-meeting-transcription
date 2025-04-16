@@ -10,5 +10,8 @@ export function createLogger(name: string) {
     warn: (message: string, ...args: any[]) => {
       console.warn(`[${name}] [WARN] ${message}`, ...args);
     },
+    debug: (message: string, ...args: any[]) => {
+      console.debug(`[${name}] [DEBUG] ${message}`, ...args);
+    },
   };
 }

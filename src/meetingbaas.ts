@@ -38,6 +38,19 @@ class MeetingBaasClient {
     try {
       logger.info(`Connecting to meeting: ${meetingUrl}`);
 
+      // Convert HTTP URL to WebSocket URL if needed
+      let wsWebhookUrl = webhookUrl;
+      if (wsWebhookUrl) {
+        if (wsWebhookUrl.startsWith('http://')) {
+          wsWebhookUrl = wsWebhookUrl.replace('http://', 'ws://');
+        } else if (wsWebhookUrl.startsWith('https://')) {
+          wsWebhookUrl = wsWebhookUrl.replace('https://', 'wss://');
+        }
+        if (!wsWebhookUrl.startsWith('ws://') && !wsWebhookUrl.startsWith('wss://')) {
+          wsWebhookUrl = `ws://${wsWebhookUrl}`;
+        }
+      }
+
       // Create the bot and join the meeting
       const response = await axios.post(
         `${this.apiUrl}/bots`,
@@ -46,10 +59,12 @@ class MeetingBaasClient {
           meeting_url: meetingUrl,
           reserved: false,
           deduplication_key: botName,
-          webhook_url: webhookUrl,
-          // You may need to include streaming configuration here
+          webhook_url: wsWebhookUrl,
           streaming: {
-            output: webhookUrl, // MeetingBaas will stream audio to this URL
+            output: wsWebhookUrl,
+            format: "wav",
+            sample_rate: 16000,
+            channels: 1,
           },
         },
         {

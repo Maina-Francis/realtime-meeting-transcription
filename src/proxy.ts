@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import { proxyConfig } from "./config";
 import { GladiaClient } from "./gladia";
 import { createLogger } from "./utils";
+import { RedisService } from "./services/redis";
 
 const logger = createLogger("Proxy");
 
@@ -96,15 +97,23 @@ class TranscriptionProxy {
   private gladiaClient: GladiaClient;
   private isGladiaSessionActive: boolean = false;
   private lastSpeaker: string | null = null;
+  private redisService: RedisService;
+  private meetingUrl: string;
 
-  constructor() {
+  constructor(meetingUrl: string) {
+    this.meetingUrl = meetingUrl;
+    
+    // Initialize Redis service
+    this.redisService = new RedisService();
+
     // Single WebSocket server
     this.server = new WebSocket.Server({
       host: proxyConfig.host,
       port: proxyConfig.port,
     });
 
-    this.gladiaClient = new GladiaClient();
+    this.gladiaClient = new GladiaClient(this.redisService);
+    this.gladiaClient.setMeetingUrl(meetingUrl);
 
     // Set up transcription callback
     this.gladiaClient.onTranscription((text, isFinal) => {
@@ -154,6 +163,20 @@ class TranscriptionProxy {
     this.botClient = ws;
 
     ws.on("message", (message) => {
+      try {
+        const msg = JSON.parse(message.toString());
+        if (msg.type === "register" && msg.client === "bot" && msg.meetingUrl) {
+          // Set the meeting URL for transcript storage
+          this.gladiaClient.setMeetingUrl(msg.meetingUrl);
+          logger.info(`Meeting URL set to: ${msg.meetingUrl}`);
+          
+          // Log the registration message for debugging
+          logger.info("Bot registration message:", msg);
+        }
+      } catch (error) {
+        logger.error("Error parsing bot message:", error);
+      }
+
       // Log all messages from bot
       logger.info(`Message from bot: ${inspectMessage(message)}`);
 
@@ -189,7 +212,7 @@ class TranscriptionProxy {
     ws.on("message", (message) => {
       // Skip logging binary buffers and try to transcribe them
       if (Buffer.isBuffer(message)) {
-        // Try to identify if it's audio data
+        // Try to identify if it's speaker information
         try {
           const jsonStr = message.toString("utf8");
           const jsonData = JSON.parse(jsonStr);
@@ -218,8 +241,6 @@ class TranscriptionProxy {
                 `New speaker: ${speakerInfo.name} (id: ${speakerInfo.id})`
               );
             }
-
-            // For other JSON messages, log as usual without speaker tracking
           } else {
             logger.info(`Message from MeetingBaas: ${inspectMessage(message)}`);
           }

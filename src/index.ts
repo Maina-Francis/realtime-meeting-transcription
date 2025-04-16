@@ -34,18 +34,18 @@ async function main() {
   try {
     logger.info("Starting transcription system...");
 
-    // Create instances
-    proxy = new TranscriptionProxy();
-    meetingBaasClient = new MeetingBaasClient();
-
-    // Setup graceful shutdown
-    setupGracefulShutdown();
-
     // Extract command line arguments
     const args = process.argv.slice(2);
     const meetingUrl = args[0] || "https://meet.google.com/your-meeting-id";
     const botName = args[1] || "Transcription Bot";
     const webhookUrl = args[2] || "ws://localhost:3000"; // Your proxy URL
+
+    // Create instances
+    proxy = new TranscriptionProxy(meetingUrl);
+    meetingBaasClient = new MeetingBaasClient();
+
+    // Setup graceful shutdown
+    setupGracefulShutdown();
 
     // Connect the bot to the meeting
     const connected = await meetingBaasClient.connect(
