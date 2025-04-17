@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { apiKeys } from "./config";
 import { createLogger } from "./utils";
 import { RedisService } from "./services/redis";
+import { wsService } from "./services/websocket";
 
 const logger = createLogger("Gladia");
 
@@ -85,26 +86,39 @@ class GladiaClient {
           const isFinal = message.data.is_final;
 
           if (utterance && utterance.text) {
-            if (isFinal) {
+            if (isFinal && this.meetingUrl) {
               logger.info(
                 `Transcription (final): ${utterance.text}`
               );
 
               // Store final transcript in Redis
-              if (this.meetingUrl) {
-                // logger.info(`Storing transcript in Redis for meeting: ${this.meetingUrl}`);
-                const success = this.redisService.storeTranscript(
-                  this.meetingUrl,
-                  utterance.text,
-                  utterance.start_time,
-                  utterance.end_time
-                );
-                if (!success) {
-                  logger.error("Failed to store transcript in Redis");
-                }
-              } else {
-                logger.warn("No meeting URL set, transcript not stored in Redis");
+              const success = this.redisService.storeTranscript(
+                this.meetingUrl,
+                utterance.text,
+                utterance.start_time,
+                utterance.end_time
+              );
+              if (!success) {
+                logger.error("Failed to store transcript in Redis");
               }
+
+              // Broadcast to frontend clients
+              wsService.broadcastTranscript({
+                id: `${this.meetingUrl}:${Date.now()}`,
+                meetingUrl: this.meetingUrl,
+                text: utterance.text,
+                isFinal: true,
+                timestamp: Date.now()
+              });
+            } else if (!isFinal && this.meetingUrl) {
+              // Broadcast partial transcripts too
+              wsService.broadcastTranscript({
+                id: `${this.meetingUrl}:${Date.now()}`,
+                meetingUrl: this.meetingUrl,
+                text: utterance.text,
+                isFinal: false,
+                timestamp: Date.now()
+              });
             }
 
             if (this.onTranscriptionCallback) {
